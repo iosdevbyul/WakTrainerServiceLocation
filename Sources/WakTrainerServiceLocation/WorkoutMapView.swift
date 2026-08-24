@@ -7,14 +7,13 @@
 
 import SwiftUI
 import MapKit
+import UIKit
 import WakTrainerCoreModels
 
-public struct WorkoutMapView: View {
+public struct WorkoutMapView: UIViewRepresentable {
     public let workoutType: WorkoutType
     public let staticSummary: StaticLocationSummary?
     public let paceSegments: [PaceSegment]
-    
-    @State private var cameraPosition: MapCameraPosition
     
     public init(
         workoutType: WorkoutType,
@@ -24,74 +23,113 @@ public struct WorkoutMapView: View {
         self.workoutType = workoutType
         self.staticSummary = staticSummary
         self.paceSegments = paceSegments
-        
-        // initial camera center coordinate
-        let initialCoordinate: CLLocationCoordinate2D
-        if workoutType == .staticWorkout, let staticSummary {
-            initialCoordinate = staticSummary.centerCoordinate
-        } else if let firstSegment = paceSegments.first {
-            initialCoordinate = firstSegment.startCoordinate
-        } else {
-            initialCoordinate = CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780)
-        }
-        
-        _cameraPosition = State(initialValue: .region(MKCoordinateRegion(
-            center: initialCoordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-        )))
     }
     
-    public var body: some View {
-        Map(position: $cameraPosition) {
-            switch workoutType {
-            case .staticWorkout:
-                // 정적 운동: 한 공간 단일 핀
-                if let staticSummary {
-                    Annotation("운동 장소", coordinate: staticSummary.centerCoordinate) {
-                        Image(systemName: "figure.climbing")
-                            .padding(8)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .clipShape(Circle())
-                    }
-                }
-                
-            case .dynamicWorkout:
-                // 동적 운동: Pace별 선분 다중 렌더링
-                ForEach(paceSegments) { segment in
-                    MapPolyline(coordinates: [segment.startCoordinate, segment.endCoordinate])
-                        .stroke(color(for: segment.speedCategory), lineWidth: 5)
-                }
-                
-                // 시작점 / 종료점 표시
-                if let start = paceSegments.first?.startCoordinate {
-                    Annotation("시작", coordinate: start) {
-                        Image(systemName: "play.circle.fill")
-                            .foregroundColor(.green)
-                            .background(Circle().fill(.white))
-                    }
-                }
-                
-                if let end = paceSegments.last?.endCoordinate {
-                    Annotation("도착", coordinate: end) {
-                        Image(systemName: "flag.checkered.circle.fill")
-                            .foregroundColor(.red)
-                            .background(Circle().fill(.white))
-                    }
-                }
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    public func makeUIView(context: Context) -> MKMapView {
+        let mapView = MKMapView()
+        mapView.delegate = context.coordinator
+        mapView.showsUserLocation = false
+        return mapView
+    }
+    
+    public func updateUIView(_ mapView: MKMapView, context: Context) {
+        mapView.removeOverlays(mapView.overlays)
+        mapView.removeAnnotations(mapView.annotations)
+        
+        switch workoutType {
+        case .staticWorkout:
+            guard let staticSummary else { return }
+            let annotation = MKPointAnnotation()
+            annotation.coordinate = staticSummary.centerCoordinate
+            annotation.title = "운동 장소"
+            mapView.addAnnotation(annotation)
+            
+            let region = MKCoordinateRegion(
+                center: staticSummary.centerCoordinate,
+                latitudinalMeters: 200,
+                longitudinalMeters: 200
+            )
+            mapView.setRegion(region, animated: true)
+            
+        case .dynamicWorkout:
+            guard !paceSegments.isEmpty else { return }
+            
+            // 1. 각 PaceSegment별 MKPolyline 생성 및 추가
+            for segment in paceSegments {
+                var coords = [segment.startCoordinate, segment.endCoordinate]
+                let polyline = ColoredPolyline(coordinates: &coords, count: 2)
+                polyline.color = uiColor(for: segment.speedCategory)
+                mapView.addOverlay(polyline)
             }
+            
+            // 2. 시작점 / 도착점 핀 추가
+            if let first = paceSegments.first {
+                let startPin = MKPointAnnotation()
+                startPin.coordinate = first.startCoordinate
+                startPin.title = "시작"
+                mapView.addAnnotation(startPin)
+            }
+            
+            if let last = paceSegments.last {
+                let endPin = MKPointAnnotation()
+                endPin.coordinate = last.endCoordinate
+                endPin.title = "도착"
+                mapView.addAnnotation(endPin)
+            }
+            
+            // 3. 경로 전체가 보이도록 카메라 영역 자동 맞춤
+            let coordinates = paceSegments.flatMap { [$0.startCoordinate, $0.endCoordinate] }
+            let rect = polylineBoundingRect(for: coordinates)
+            mapView.setVisibleMapRect(rect, edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40), animated: true)
         }
     }
     
-    // Pace 구간별 선 색상 매핑
-    private func color(for category: SpeedCategory) -> Color {
+    private func polylineBoundingRect(for coordinates: [CLLocationCoordinate2D]) -> MKMapRect {
+        var rect = MKMapRect.null
+        for coord in coordinates {
+            let point = MKMapPoint(coord)
+            let pointRect = MKMapRect(x: point.x, y: point.y, width: 0, height: 0)
+            rect = rect.union(pointRect)
+        }
+        return rect
+    }
+    
+    private func uiColor(for category: SpeedCategory) -> UIColor {
         switch category {
-        case .verySlow:  return .yellow
-        case .slow:      return Color(red: 0.9, green: 0.7, blue: 0.0)
-        case .moderate:  return .green
-        case .brisk:     return Color(red: 0.0, green: 0.6, blue: 0.2)
-        case .fast:      return Color(red: 1.0, green: 0.4, blue: 0.4)
-        case .veryFast:  return .red
+        case .verySlow:  return .systemYellow
+        case .slow:      return UIColor(red: 0.9, green: 0.7, blue: 0.0, alpha: 1.0)
+        case .moderate:  return .systemGreen
+        case .brisk:     return UIColor(red: 0.0, green: 0.6, blue: 0.2, alpha: 1.0)
+        case .fast:      return UIColor(red: 1.0, green: 0.4, blue: 0.4, alpha: 1.0)
+        case .veryFast:  return .systemRed
         }
     }
+    
+    // MARK: - Coordinator
+    public class Coordinator: NSObject, MKMapViewDelegate {
+        var parent: WorkoutMapView
+        
+        init(_ parent: WorkoutMapView) {
+            self.parent = parent
+        }
+        
+        public func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let coloredPolyline = overlay as? ColoredPolyline {
+                let renderer = MKPolylineRenderer(polyline: coloredPolyline)
+                renderer.strokeColor = coloredPolyline.color
+                renderer.lineWidth = 5
+                return renderer
+            }
+            return MKOverlayRenderer(overlay: overlay)
+        }
+    }
+}
+
+// 개별 선분 색상 보관용 커스텀 MKPolyline
+private class ColoredPolyline: MKPolyline {
+    var color: UIColor = .systemBlue
 }
