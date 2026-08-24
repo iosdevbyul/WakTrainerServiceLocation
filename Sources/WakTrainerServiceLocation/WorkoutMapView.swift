@@ -133,3 +133,63 @@ public struct WorkoutMapView: UIViewRepresentable {
 private class ColoredPolyline: MKPolyline {
     var color: UIColor = .systemBlue
 }
+
+// MARK: - SwiftUI Previews (Xcode Canvas 시각적 테스트용)
+struct WorkoutMapView_Previews: PreviewProvider {
+    
+    // 1. 정적 운동 (클라이밍, 트레드밀 등) 더미 데이터
+    static var staticSummaryMock: StaticLocationSummary {
+        StaticLocationSummary(
+            centerCoordinate: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780), // 서울시청
+            sampleCount: 150
+        )
+    }
+    
+    // 2. 동적 운동 (달리기 경로 및 속도별 Pace) 더미 데이터
+    static var paceSegmentsMock: [PaceSegment] {
+        let baseLat = 37.5665
+        let baseLon = 126.9780
+        
+        return [
+            // 구간 1: 느림 (노란색)
+            PaceSegment(
+                startCoordinate: CLLocationCoordinate2D(latitude: baseLat, longitude: baseLon),
+                endCoordinate: CLLocationCoordinate2D(latitude: baseLat + 0.001, longitude: baseLon + 0.001),
+                speedCategory: .slow,
+                speedMs: 1.5
+            ),
+            // 구간 2: 보통 (초록색)
+            PaceSegment(
+                startCoordinate: CLLocationCoordinate2D(latitude: baseLat + 0.001, longitude: baseLon + 0.001),
+                endCoordinate: CLLocationCoordinate2D(latitude: baseLat + 0.002, longitude: baseLon + 0.003),
+                speedCategory: .moderate,
+                speedMs: 2.2
+            ),
+            // 구간 3: 빠름 (진한 초록 / 빨간색)
+            PaceSegment(
+                startCoordinate: CLLocationCoordinate2D(latitude: baseLat + 0.002, longitude: baseLon + 0.003),
+                endCoordinate: CLLocationCoordinate2D(latitude: baseLat + 0.004, longitude: baseLon + 0.004),
+                speedCategory: .veryFast,
+                speedMs: 4.5
+            )
+        ]
+    }
+    
+    static var previews: some View {
+        Group {
+            // 정적 운동 지도 렌더링
+            WorkoutMapView(
+                workoutType: .staticWorkout,
+                staticSummary: staticSummaryMock
+            )
+            .previewDisplayName("정적 운동 (클라이밍)")
+            
+            // 동적 운동 지도 렌더링 (Pace 그라데이션)
+            WorkoutMapView(
+                workoutType: .dynamicWorkout,
+                paceSegments: paceSegmentsMock
+            )
+            .previewDisplayName("동적 운동 (러닝 Pace)")
+        }
+    }
+}
