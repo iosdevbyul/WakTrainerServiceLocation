@@ -1,6 +1,15 @@
 {
   "pins" : [
     {
+      "identity" : "trislocationkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/iosdevbyul/TrisLocationKit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "f9e82cdbfd5e098f2ef1a98e961cd0f9420c13b4"
+      }
+    },
+    {
       "identity" : "waktrainercoremodels",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/iosdevbyul/WakTrainerCoreModels",
