@@ -24,6 +24,17 @@ public struct WorkoutMapView: UIViewRepresentable {
         self.staticSummary = staticSummary
         self.paceSegments = paceSegments
     }
+
+    public init(
+        routePoints: [WorkoutRoutePoint]
+    ) {
+        self.workoutType = .dynamicWorkout
+        self.staticSummary = nil
+        self.paceSegments = WorkoutLocationProcessor()
+            .processDynamicWorkout(
+                routePoints: routePoints
+            )
+    }
     
     public func makeCoordinator() -> Coordinator {
         Coordinator(self)
