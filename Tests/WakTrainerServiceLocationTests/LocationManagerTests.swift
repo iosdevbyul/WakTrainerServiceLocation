@@ -204,6 +204,14 @@ struct LocationManagerTests {
         #expect(
             manager.routeCoordinates.last?.latitude == 37.2
         )
+
+        #expect(manager.routePoints.count == 2)
+        #expect(manager.routePoints.first?.timestamp == firstPoint.timestamp)
+        #expect(manager.routePoints.first?.altitude == firstPoint.altitude)
+        #expect(manager.routePoints.first?.speedMetersPerSecond == firstPoint.speed)
+        #expect(manager.routePoints.first?.horizontalAccuracy == firstPoint.horizontalAccuracy)
+        #expect(manager.routePoints.first?.verticalAccuracy == firstPoint.verticalAccuracy)
+        #expect(manager.routePoints.first?.course == firstPoint.course)
     }
 
     @Test
@@ -243,6 +251,7 @@ struct LocationManagerTests {
         #expect(
             manager.routeCoordinates.isEmpty
         )
+        #expect(manager.routePoints.isEmpty)
 
         manager.stopTracking()
         manager.startTracking()
@@ -250,6 +259,7 @@ struct LocationManagerTests {
         #expect(
             manager.routeCoordinates.isEmpty
         )
+        #expect(manager.routePoints.isEmpty)
     }
 
     @Test
