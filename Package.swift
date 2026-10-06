@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "WakTrainerServiceLocation",
     platforms: [
-        .iOS(.v15)
+        .iOS(.v17)
     ],
     products: [
         .library(
@@ -18,7 +18,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/iosdevbyul/WakTrainerCoreModels",
-            branch: "feat/workout-session-reporting"
+            branch: "main"
         ),
         .package(
             url: "https://github.com/iosdevbyul/TrisLocationKit",
