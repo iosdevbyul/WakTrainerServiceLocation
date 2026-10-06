@@ -37,6 +37,24 @@ public final class WorkoutLocationProcessor: Sendable {
     }
     
     // 2. 동적 운동 (Pace 구간별 선분 생성)
+    public func processDynamicWorkout(routePoints: [WorkoutRoutePoint]) -> [PaceSegment] {
+        let locations = routePoints.map { point in
+            CLLocation(
+                coordinate: point.coordinate,
+                altitude: point.altitude ?? 0,
+                horizontalAccuracy: point.horizontalAccuracy ?? -1,
+                verticalAccuracy: point.verticalAccuracy ?? -1,
+                course: point.course ?? -1,
+                speed: point.speedMetersPerSecond ?? -1,
+                timestamp: point.timestamp
+            )
+        }
+
+        return processDynamicWorkout(
+            locations: locations
+        )
+    }
+
     public func processDynamicWorkout(locations: [CLLocation]) -> [PaceSegment] {
         guard locations.count >= 2 else { return [] }
         
