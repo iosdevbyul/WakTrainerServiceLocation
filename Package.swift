@@ -18,7 +18,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/iosdevbyul/WakTrainerCoreModels",
-            branch: "main"
+            branch: "feat/workout-session-reporting"
         ),
         .package(
             url: "https://github.com/iosdevbyul/TrisLocationKit",
