@@ -19,6 +19,9 @@ public final class LocationManager: NSObject,
     public private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
 
     @Published
+    public private(set) var routePoints: [WorkoutRoutePoint] = []
+
+    @Published
     public private(set) var isTracking: Bool = false
 
     public override init() {
@@ -54,6 +57,7 @@ public final class LocationManager: NSObject,
         trackingTask?.cancel()
 
         routeCoordinates.removeAll()
+        routePoints.removeAll()
         isTracking = true
 
         let updates = locationProvider.locationUpdates()
@@ -114,8 +118,22 @@ private extension LocationManager {
         )
 
         userLocation = location
+
         routeCoordinates.append(
             location.coordinate
+        )
+
+        routePoints.append(
+            WorkoutRoutePoint(
+                timestamp: point.timestamp,
+                latitude: point.latitude,
+                longitude: point.longitude,
+                altitude: point.altitude,
+                speedMetersPerSecond: point.speed,
+                horizontalAccuracy: point.horizontalAccuracy,
+                verticalAccuracy: point.verticalAccuracy,
+                course: point.course
+            )
         )
     }
 }
