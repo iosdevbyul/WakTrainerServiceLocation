@@ -2,12 +2,18 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
 
   pull_request:
     branches:
       - main
 
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -188,18 +194,6 @@ jobs:
                   f"SIMULATOR_ID={simulator_id}\n"
               )
           PY
-
-      - name: Boot iOS Simulator
-        run: |
-          set -euo pipefail
-
-          echo "Selected simulator: $SIMULATOR_ID"
-
-          xcrun simctl boot "$SIMULATOR_ID" || true
-
-          xcrun simctl bootstatus \
-            "$SIMULATOR_ID" \
-            -b
 
       - name: Build and Test
         run: |
