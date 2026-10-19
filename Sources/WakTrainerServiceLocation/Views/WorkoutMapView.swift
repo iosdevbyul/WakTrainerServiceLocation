@@ -1,10 +1,3 @@
-//
-//  WorkoutMapView.swift
-//  WakTrainerServiceLocation
-//
-//  Created by COMATOKI on 2026-08-25.
-//
-
 import SwiftUI
 import MapKit
 import UIKit
@@ -14,134 +7,270 @@ public struct WorkoutMapView: UIViewRepresentable {
     public let workoutType: WorkoutType
     public let staticSummary: StaticLocationSummary?
     public let paceSegments: [PaceSegment]
-    
+    /// Follow a live workout instead of repeatedly fitting the whole recorded route.
+    public let followsCurrentPosition: Bool
+
     public init(
         workoutType: WorkoutType,
         staticSummary: StaticLocationSummary? = nil,
-        paceSegments: [PaceSegment] = []
+        paceSegments: [PaceSegment] = [],
+        followsCurrentPosition: Bool = false
     ) {
         self.workoutType = workoutType
         self.staticSummary = staticSummary
         self.paceSegments = paceSegments
+        self.followsCurrentPosition = followsCurrentPosition
     }
 
-    public init(
-        routePoints: [WorkoutRoutePoint]
-    ) {
+    public init(routePoints: [WorkoutRoutePoint]) {
         self.workoutType = .dynamicWorkout
         self.staticSummary = nil
         self.paceSegments = WorkoutLocationProcessor()
-            .processDynamicWorkout(
-                routePoints: routePoints
-            )
+            .processDynamicWorkout(routePoints: routePoints)
+        self.followsCurrentPosition = false
     }
-    
-    public func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
+
+    public func makeCoordinator() -> Coordinator { Coordinator(self) }
+
     public func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
         mapView.showsUserLocation = false
+        mapView.userTrackingMode = .none
         return mapView
     }
-    
+
     public func updateUIView(_ mapView: MKMapView, context: Context) {
-        mapView.removeOverlays(mapView.overlays)
-        mapView.removeAnnotations(mapView.annotations)
-        
+        let coordinator = context.coordinator
+        coordinator.parent = self
+
         switch workoutType {
         case .staticWorkout:
-            guard let staticSummary else { return }
-            let annotation = MKPointAnnotation()
-            annotation.coordinate = staticSummary.centerCoordinate
-            annotation.title = "운동 장소"
-            mapView.addAnnotation(annotation)
-            
-            let region = MKCoordinateRegion(
-                center: staticSummary.centerCoordinate,
-                latitudinalMeters: 200,
-                longitudinalMeters: 200
-            )
-            mapView.setRegion(region, animated: true)
-            
+            coordinator.updateStatic(summary: staticSummary, on: mapView)
         case .dynamicWorkout:
-            guard !paceSegments.isEmpty else { return }
-            
-            // 1. 각 PaceSegment별 MKPolyline 생성 및 추가
-            for segment in paceSegments {
-                var coords = [segment.startCoordinate, segment.endCoordinate]
-                let polyline = ColoredPolyline(coordinates: &coords, count: 2)
-                polyline.color = uiColor(for: segment.speedCategory)
-                mapView.addOverlay(polyline)
-            }
-            
-            // 2. 시작점 / 도착점 핀 추가
-            if let first = paceSegments.first {
-                let startPin = MKPointAnnotation()
-                startPin.coordinate = first.startCoordinate
-                startPin.title = "시작"
-                mapView.addAnnotation(startPin)
-            }
-            
-            if let last = paceSegments.last {
-                let endPin = MKPointAnnotation()
-                endPin.coordinate = last.endCoordinate
-                endPin.title = "도착"
-                mapView.addAnnotation(endPin)
-            }
-            
-            // 3. 경로 전체가 보이도록 카메라 영역 자동 맞춤
-            let coordinates = paceSegments.flatMap { [$0.startCoordinate, $0.endCoordinate] }
-            let rect = polylineBoundingRect(for: coordinates)
-            mapView.setVisibleMapRect(rect, edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40), animated: true)
+            coordinator.updateRoute(
+                segments: paceSegments,
+                followsPosition: followsCurrentPosition,
+                on: mapView
+            )
         }
     }
-    
-    private func polylineBoundingRect(for coordinates: [CLLocationCoordinate2D]) -> MKMapRect {
-        var rect = MKMapRect.null
-        for coord in coordinates {
-            let point = MKMapPoint(coord)
-            let pointRect = MKMapRect(x: point.x, y: point.y, width: 0, height: 0)
-            rect = rect.union(pointRect)
-        }
-        return rect
-    }
-    
+
     private func uiColor(for category: SpeedCategory) -> UIColor {
         switch category {
         case .verySlow:  return .systemYellow
-        case .slow:      return UIColor(red: 0.9, green: 0.7, blue: 0.0, alpha: 1.0)
+        case .slow:      return UIColor(red: 0.9, green: 0.7, blue: 0.0, alpha: 1)
         case .moderate:  return .systemGreen
-        case .brisk:     return UIColor(red: 0.0, green: 0.6, blue: 0.2, alpha: 1.0)
-        case .fast:      return UIColor(red: 1.0, green: 0.4, blue: 0.4, alpha: 1.0)
+        case .brisk:     return UIColor(red: 0, green: 0.6, blue: 0.2, alpha: 1)
+        case .fast:      return UIColor(red: 1, green: 0.4, blue: 0.4, alpha: 1)
         case .veryFast:  return .systemRed
         }
     }
-    
-    // MARK: - Coordinator
-    public class Coordinator: NSObject, MKMapViewDelegate {
+
+    public final class Coordinator: NSObject, MKMapViewDelegate {
         var parent: WorkoutMapView
-        
+        private var renderedSegments: [PaceSegment] = []
+        private let startPin = MKPointAnnotation()
+        private let headingPin = HeadingAnnotation()
+        private var hasStartPin = false
+        private var hasHeadingPin = false
+        private var hasSetInitialCamera = false
+        private var trackingEnabled = true
+        private var lastCameraPoint: CLLocationCoordinate2D?
+        private var lastStaticCoordinate: CLLocationCoordinate2D?
+
         init(_ parent: WorkoutMapView) {
             self.parent = parent
+            super.init()
+            startPin.title = "Start"
         }
-        
-        public func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            if let coloredPolyline = overlay as? ColoredPolyline {
-                let renderer = MKPolylineRenderer(polyline: coloredPolyline)
-                renderer.strokeColor = coloredPolyline.color
-                renderer.lineWidth = 5
-                return renderer
+
+        func updateStatic(summary: StaticLocationSummary?, on mapView: MKMapView) {
+            guard let summary else { return }
+            let coordinate = summary.centerCoordinate
+            if hasHeadingPin {
+                mapView.removeAnnotation(headingPin)
+                hasHeadingPin = false
             }
-            return MKOverlayRenderer(overlay: overlay)
+            if !renderedSegments.isEmpty {
+                mapView.removeOverlays(mapView.overlays)
+                renderedSegments = []
+            }
+            if !hasStartPin {
+                mapView.addAnnotation(startPin)
+                hasStartPin = true
+            }
+            startPin.coordinate = coordinate
+            guard lastStaticCoordinate == nil ||
+                  CLLocation(latitude: lastStaticCoordinate!.latitude, longitude: lastStaticCoordinate!.longitude)
+                    .distance(from: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) > 5 else { return }
+            lastStaticCoordinate = coordinate
+            mapView.setRegion(
+                MKCoordinateRegion(center: coordinate, latitudinalMeters: 200, longitudinalMeters: 200),
+                animated: false
+            )
+        }
+
+        func updateRoute(
+            segments: [PaceSegment],
+            followsPosition: Bool,
+            on mapView: MKMapView
+        ) {
+            guard !segments.isEmpty else { return }
+
+            // Preserve existing overlays when the route only grows.
+            let prefixUnchanged = segments.count >= renderedSegments.count
+                && zip(segments, renderedSegments).allSatisfy { new, old in
+                    new.startCoordinate.latitude == old.startCoordinate.latitude
+                        && new.startCoordinate.longitude == old.startCoordinate.longitude
+                        && new.endCoordinate.latitude == old.endCoordinate.latitude
+                        && new.endCoordinate.longitude == old.endCoordinate.longitude
+                        && new.speedCategory == old.speedCategory
+                }
+            if !prefixUnchanged {
+                mapView.removeOverlays(mapView.overlays)
+                renderedSegments = []
+                hasSetInitialCamera = false
+                lastCameraPoint = nil
+            }
+            if segments.count > renderedSegments.count {
+                for segment in segments.dropFirst(renderedSegments.count) {
+                    var coordinates = [segment.startCoordinate, segment.endCoordinate]
+                    let polyline = ColoredPolyline(coordinates: &coordinates, count: 2)
+                    polyline.color = parent.uiColor(for: segment.speedCategory)
+                    mapView.addOverlay(polyline)
+                }
+                renderedSegments = segments
+            }
+
+            if !hasStartPin {
+                startPin.coordinate = segments[0].startCoordinate
+                mapView.addAnnotation(startPin)
+                hasStartPin = true
+            } else {
+                startPin.coordinate = segments[0].startCoordinate
+            }
+
+            let last = segments[segments.count - 1]
+            let coordinate = last.endCoordinate
+            headingPin.coordinate = coordinate
+            headingPin.heading = Self.bearing(from: last.startCoordinate, to: last.endCoordinate)
+            if !hasHeadingPin {
+                mapView.addAnnotation(headingPin)
+                hasHeadingPin = true
+            }
+            if let view = mapView.view(for: headingPin) as? HeadingAnnotationView {
+                view.updateHeading(headingPin.heading)
+            }
+
+            if followsPosition {
+                if !hasSetInitialCamera {
+                    trackingEnabled = true
+                    moveCamera(to: coordinate, on: mapView, animated: false)
+                    hasSetInitialCamera = true
+                } else if trackingEnabled, shouldMoveCamera(to: coordinate) {
+                    moveCamera(to: coordinate, on: mapView, animated: true)
+                }
+            } else if !hasSetInitialCamera || !prefixUnchanged {
+                let points = segments.flatMap { [$0.startCoordinate, $0.endCoordinate] }
+                var rect = MKMapRect.null
+                for coordinate in points {
+                    let p = MKMapPoint(coordinate)
+                    rect = rect.union(MKMapRect(x: p.x, y: p.y, width: 1, height: 1))
+                }
+                mapView.setVisibleMapRect(
+                    rect, edgePadding: UIEdgeInsets(top: 70, left: 40, bottom: 70, right: 40),
+                    animated: false
+                )
+                hasSetInitialCamera = true
+            }
+        }
+
+        private func shouldMoveCamera(to coordinate: CLLocationCoordinate2D) -> Bool {
+            guard let previous = lastCameraPoint else { return true }
+            return CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+                .distance(from: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) >= 12
+        }
+
+        private func moveCamera(to coordinate: CLLocationCoordinate2D, on mapView: MKMapView, animated: Bool) {
+            lastCameraPoint = coordinate
+            mapView.setRegion(
+                MKCoordinateRegion(center: coordinate, latitudinalMeters: 350, longitudinalMeters: 350),
+                animated: animated
+            )
+        }
+
+        /// MapKit can signal user-driven panning/zooming via active gesture recognizers.
+        public func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            let recognizers = mapView.subviews.flatMap { $0.gestureRecognizers ?? [] }
+                + (mapView.gestureRecognizers ?? [])
+            if recognizers.contains(where: { $0.state == .began || $0.state == .changed }) {
+                trackingEnabled = false
+            }
+        }
+
+        public func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard annotation is HeadingAnnotation else { return nil }
+            let identifier = "workout-heading"
+            let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? HeadingAnnotationView
+                ?? HeadingAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+            view.annotation = annotation
+            view.updateHeading(headingPin.heading)
+            return view
+        }
+
+        public func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            guard let polyline = overlay as? ColoredPolyline else {
+                return MKOverlayRenderer(overlay: overlay)
+            }
+            let renderer = MKPolylineRenderer(polyline: polyline)
+            renderer.strokeColor = polyline.color
+            renderer.lineWidth = 5
+            renderer.lineCap = .round
+            renderer.lineJoin = .round
+            return renderer
+        }
+
+        static func bearing(from first: CLLocationCoordinate2D, to second: CLLocationCoordinate2D) -> CLLocationDirection {
+            let a = first.latitude * .pi / 180
+            let b = second.latitude * .pi / 180
+            let delta = (second.longitude - first.longitude) * .pi / 180
+            let y = sin(delta) * cos(b)
+            let x = cos(a) * sin(b) - sin(a) * cos(b) * cos(delta)
+            return (atan2(y, x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
         }
     }
 }
 
-// 개별 선분 색상 보관용 커스텀 MKPolyline
-private class ColoredPolyline: MKPolyline {
+private final class HeadingAnnotation: MKPointAnnotation {
+    var heading: CLLocationDirection = 0
+}
+
+private final class HeadingAnnotationView: MKAnnotationView {
+    private let arrow = UIImageView(image: UIImage(systemName: "location.north.fill"))
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+        backgroundColor = .systemGreen
+        layer.cornerRadius = 20
+        layer.borderWidth = 2
+        layer.borderColor = UIColor.white.cgColor
+        arrow.tintColor = .white
+        arrow.contentMode = .scaleAspectFit
+        arrow.frame = bounds.insetBy(dx: 10, dy: 10)
+        addSubview(arrow)
+        canShowCallout = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+
+    func updateHeading(_ heading: CLLocationDirection) {
+        arrow.transform = CGAffineTransform(rotationAngle: heading * .pi / 180)
+    }
+}
+
+private final class ColoredPolyline: MKPolyline {
     var color: UIColor = .systemBlue
 }
 
