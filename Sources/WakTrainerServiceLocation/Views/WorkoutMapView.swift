@@ -49,7 +49,7 @@ public struct WorkoutMapView: UIViewRepresentable {
             coordinator.updateStatic(summary: staticSummary, on: mapView)
         case .dynamicWorkout:
             coordinator.updateRoute(
-                segments: paceSegments,
+                segments: WorkoutRouteDisplaySmoother.smooth(paceSegments),
                 followsPosition: followsCurrentPosition,
                 on: mapView
             )
