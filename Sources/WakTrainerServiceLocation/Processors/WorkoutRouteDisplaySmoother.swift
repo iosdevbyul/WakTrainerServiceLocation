@@ -55,9 +55,15 @@ enum WorkoutRouteDisplaySmoother {
         }
 
         return segments.enumerated().map { index, segment in
-            PaceSegment(
-                startCoordinate: display[index],
-                endCoordinate: display[index + 1],
+            let joinsPrevious = index == 0 || samePoint(
+                segments[index - 1].endCoordinate, segment.startCoordinate
+            )
+            let joinsNext = index == segments.count - 1 || samePoint(
+                segment.endCoordinate, segments[index + 1].startCoordinate
+            )
+            return PaceSegment(
+                startCoordinate: joinsPrevious ? display[index] : segment.startCoordinate,
+                endCoordinate: joinsNext ? display[index + 1] : segment.endCoordinate,
                 speedCategory: segment.speedCategory,
                 speedMs: segment.speedMs
             )
