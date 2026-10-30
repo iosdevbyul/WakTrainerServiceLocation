@@ -33,9 +33,7 @@ enum WorkoutRouteDisplaySmoother {
             if firstDistance > 15, lastDistance > 15,
                firstDistance < 100, lastDistance < 100,
                directDistance < 15 {
-                display[index] = CLLocationCoordinate2D(
-                    MKMapPoint(x: (first.x + last.x) / 2, y: (first.y + last.y) / 2)
-                )
+                display[index] = MKMapPoint(x: (first.x + last.x) / 2, y: (first.y + last.y) / 2).coordinate
                 continue
             }
 
@@ -44,13 +42,13 @@ enum WorkoutRouteDisplaySmoother {
                 x: (first.x + last.x) / 2,
                 y: (first.y + last.y) / 2
             )
-            let deviation = meters(current, CLLocationCoordinate2D(midpoint))
+            let deviation = meters(current, midpoint.coordinate)
             if firstDistance <= 30, lastDistance <= 30, deviation <= 8 {
                 let softened = MKMapPoint(
                     x: middle.x * 0.75 + midpoint.x * 0.25,
                     y: middle.y * 0.75 + midpoint.y * 0.25
                 )
-                display[index] = CLLocationCoordinate2D(softened)
+                display[index] = softened.coordinate
             }
         }
 
