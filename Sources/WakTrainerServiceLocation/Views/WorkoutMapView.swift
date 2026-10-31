@@ -9,6 +9,8 @@ public struct WorkoutMapView: UIViewRepresentable {
     public let paceSegments: [PaceSegment]
     /// Follow a live workout instead of repeatedly fitting the whole recorded route.
     public let followsCurrentPosition: Bool
+    /// Optional Zone 1–5 classifications for each route segment. Nil retains speed coloring.
+    public let routeZoneLevels: [Int?]?
 
     public init(
         workoutType: WorkoutType,
@@ -20,14 +22,16 @@ public struct WorkoutMapView: UIViewRepresentable {
         self.staticSummary = staticSummary
         self.paceSegments = paceSegments
         self.followsCurrentPosition = followsCurrentPosition
+        self.routeZoneLevels = nil
     }
 
-    public init(routePoints: [WorkoutRoutePoint]) {
+    public init(routePoints: [WorkoutRoutePoint], zoneLevels: [Int?]? = nil) {
         self.workoutType = .dynamicWorkout
         self.staticSummary = nil
         self.paceSegments = WorkoutLocationProcessor()
             .processDynamicWorkout(routePoints: routePoints)
         self.followsCurrentPosition = false
+        self.routeZoneLevels = zoneLevels
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -50,6 +54,7 @@ public struct WorkoutMapView: UIViewRepresentable {
         case .dynamicWorkout:
             coordinator.updateRoute(
                 segments: WorkoutRouteDisplaySmoother.smooth(paceSegments),
+                zoneLevels: routeZoneLevels,
                 followsPosition: followsCurrentPosition,
                 on: mapView
             )
@@ -67,9 +72,21 @@ public struct WorkoutMapView: UIViewRepresentable {
         }
     }
 
+    private func zoneColor(for level: Int?) -> UIColor {
+        switch level {
+        case 1: return .systemBlue
+        case 2: return .systemGreen
+        case 3: return .systemYellow
+        case 4: return .systemOrange
+        case 5: return .systemRed
+        default: return .systemGray
+        }
+    }
+
     public final class Coordinator: NSObject, MKMapViewDelegate {
         var parent: WorkoutMapView
         private var renderedSegments: [PaceSegment] = []
+        private var renderedZoneLevels: [Int?]?
         private let startPin = MKPointAnnotation()
         private let headingPin = HeadingAnnotation()
         private var hasStartPin = false
@@ -113,6 +130,7 @@ public struct WorkoutMapView: UIViewRepresentable {
 
         func updateRoute(
             segments: [PaceSegment],
+            zoneLevels: [Int?]?,
             followsPosition: Bool,
             on mapView: MKMapView
         ) {
@@ -127,20 +145,28 @@ public struct WorkoutMapView: UIViewRepresentable {
                         && new.endCoordinate.longitude == old.endCoordinate.longitude
                         && new.speedCategory == old.speedCategory
                 }
-            if !prefixUnchanged {
+            // Repaint when the selected metric changes, without resetting the map camera.
+            let colorsChanged = renderedZoneLevels != zoneLevels
+            if !prefixUnchanged || colorsChanged {
                 mapView.removeOverlays(mapView.overlays)
                 renderedSegments = []
-                hasSetInitialCamera = false
-                lastCameraPoint = nil
+                if !prefixUnchanged {
+                    hasSetInitialCamera = false
+                    lastCameraPoint = nil
+                }
             }
             if segments.count > renderedSegments.count {
-                for segment in segments.dropFirst(renderedSegments.count) {
+                for (offset, segment) in segments.dropFirst(renderedSegments.count).enumerated() {
+                    let index = renderedSegments.count + offset
                     var coordinates = [segment.startCoordinate, segment.endCoordinate]
                     let polyline = ColoredPolyline(coordinates: &coordinates, count: 2)
-                    polyline.color = parent.uiColor(for: segment.speedCategory)
+                    polyline.color = zoneLevels == nil
+                        ? parent.uiColor(for: segment.speedCategory)
+                        : parent.zoneColor(for: zoneLevels?.indices.contains(index) == true ? zoneLevels?[index] : nil)
                     mapView.addOverlay(polyline)
                 }
                 renderedSegments = segments
+                renderedZoneLevels = zoneLevels
             }
 
             if !hasStartPin {
